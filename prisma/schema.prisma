@@ -1,0 +1,238 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+// ============ MULTI-TENANCY & AUTH ============
+
+model Organization {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  name          String
+  slug          String   @unique
+  description   String?
+  logo          String?
+  plan          String   @default("starter") // starter, professional, enterprise
+  maxUsers      Int      @default(10)
+  settings      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  users         User[]
+  departments   Department[]
+  tasks         Task[]
+  approvals     Approval[]
+  announcements Announcement[]
+  activityLogs  ActivityLog[]
+
+  @@index([slug])
+}
+
+model User {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  email         String   @unique
+  name          String?
+  password      String
+  avatar        String?
+  status        String   @default("active") // active, inactive, suspended
+  emailVerified DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  organizationId String         @db.ObjectId
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userRoles      UserRole[]
+  tasksAssigned  Task[]         @relation("assignedTo")
+  taskCreated    Task[]         @relation("createdBy")
+  approvals      Approval[]     @relation("assignedApprover")
+  approvalsMade  Approval[]     @relation("approvedBy")
+  announcements  Announcement[] @relation("createdBy")
+  activityLogs   ActivityLog[]
+  sessions       Session[]
+
+  @@unique([email, organizationId])
+  @@index([organizationId])
+}
+
+model UserRole {
+  id    String @id @default(auto()) @map("_id") @db.ObjectId
+  role  String // admin, manager, member, guest
+  level Int    @default(0)
+
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  departmentId String?     @db.ObjectId
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, role, departmentId])
+  @@index([userId])
+  @@index([departmentId])
+}
+
+model Session {
+  id    String @id @default(auto()) @map("_id") @db.ObjectId
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  userId        String   @db.ObjectId
+  sessionToken  String   @unique
+  expires       DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// ============ HIERARCHICAL STRUCTURE ============
+
+model Department {
+  id   String @id @default(auto()) @map("_id") @db.ObjectId
+  name String
+  description String?
+
+  organizationId String       @db.ObjectId
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  parentId   String?      @db.ObjectId
+  parent     Department?  @relation("SubDepartments", fields: [parentId], references: [id], onDelete: SetNull)
+  children   Department[] @relation("SubDepartments")
+
+  userRoles UserRole[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([parentId])
+}
+
+// ============ TASKS ============
+
+model Task {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  title       String
+  description String?
+  status      String   @default("todo") // todo, in-progress, review, done
+  priority    String   @default("medium") // low, medium, high, urgent
+  dueDate     DateTime?
+
+  organizationId String       @db.ObjectId
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdById String @db.ObjectId
+  createdBy   User   @relation("createdBy", fields: [createdById], references: [id], onDelete: Cascade)
+
+  assignedToId String? @db.ObjectId
+  assignedTo   User?   @relation("assignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  attachments String[] // URLs to uploaded files
+  tags        String[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([assignedToId])
+  @@index([createdById])
+  @@index([status])
+}
+
+// ============ APPROVALS ============
+
+model Approval {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  title       String
+  description String?
+  requestType String   @default("general") // general, budget, document, leave, other
+  status      String   @default("pending") // pending, approved, rejected
+  priority    String   @default("normal")
+
+  organizationId String       @db.ObjectId
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdById String @db.ObjectId
+  createdBy   User   @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  currentApproverId String? @db.ObjectId
+  currentApprover   User?   @relation("assignedApprover", fields: [currentApproverId], references: [id], onDelete: SetNull)
+
+  approvedById String? @db.ObjectId
+  approvedBy   User?   @relation("approvedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  rejectionReason String?
+  approvalNotes   String?
+
+  attachments String[] // URLs to uploaded files
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  approvedAt DateTime?
+
+  @@index([organizationId])
+  @@index([currentApproverId])
+  @@index([createdById])
+  @@index([status])
+}
+
+// ============ ANNOUNCEMENTS ============
+
+model Announcement {
+  id       String  @id @default(auto()) @map("_id") @db.ObjectId
+  title    String
+  content  String
+  isPinned Boolean @default(false)
+
+  organizationId String       @db.ObjectId
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdById String @db.ObjectId
+  createdBy   User   @relation("createdBy", fields: [createdById], references: [id], onDelete: Cascade)
+
+  // Target audience
+  targetRole    String?   // all, admin, manager, member (null = all)
+  targetDepartmentIds String[] @db.ObjectId // Empty = all departments
+
+  readBy String[] @db.ObjectId // User IDs who have read this
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([createdById])
+}
+
+// ============ AUDIT LOGGING ============
+
+model ActivityLog {
+  id       String @id @default(auto()) @map("_id") @db.ObjectId
+  action   String // created, updated, deleted, approved, rejected, etc
+  entity   String // Task, Approval, User, Department, etc
+  entityId String
+
+  organizationId String       @db.ObjectId
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  details Json?
+  ipAddress String?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([entityId])
+  @@index([createdAt])
+}

@@ -1,0 +1,18 @@
+{
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "outputDirectory": ".next",
+  "env": {
+    "NEXTAUTH_SECRET": {
+      "description": "NextAuth secret - generate with: openssl rand -base64 32"
+    },
+    "NEXTAUTH_URL": {
+      "description": "Your application URL"
+    },
+    "DATABASE_URL": {
+      "description": "MongoDB connection string or Supabase PostgreSQL URL"
+    }
+  }
+}
